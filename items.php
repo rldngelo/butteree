@@ -1,360 +1,199 @@
 <?php
-require_once 'config.php';
+require 'db.php';
 
-$conn = getDBConnection();
-$message = '';
-$edit_item = null;
+$message = "";
 
-// Handle form submissions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['action'])) {
-        switch ($_POST['action']) {
-            case 'add':
-                $code = $_POST['item_code'];
-                $description = $_POST['item_description'];
-                $price = $_POST['price'];
-
-                $sql = "INSERT INTO items (item_code, item_description, price) VALUES (?, ?, ?)";
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param("ssd", $code, $description, $price);
-
-                if ($stmt->execute()) {
-                    $message = "<div class='alert success'>Item added successfully!</div>";
-                } else {
-                    $message = "<div class='alert error'>Error: " . $stmt->error . "</div>";
-                }
-                $stmt->close();
-                break;
-
-            case 'edit':
-                $id = $_POST['id'];
-                $code = $_POST['item_code'];
-                $description = $_POST['item_description'];
-                $price = $_POST['price'];
-
-                $sql = "UPDATE items SET item_code = ?, item_description = ?, price = ? WHERE id = ?";
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param("ssdi", $code, $description, $price, $id);
-
-                if ($stmt->execute()) {
-                    $message = "<div class='alert success'>Item updated successfully!</div>";
-                } else {
-                    $message = "<div class='alert error'>Error: " . $stmt->error . "</div>";
-                }
-                $stmt->close();
-                break;
-
-            case 'delete':
-                $id = $_POST['id'];
-                $sql = "DELETE FROM items WHERE id = ?";
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param("i", $id);
-
-                if ($stmt->execute()) {
-                    $message = "<div class='alert success'>Item deleted successfully!</div>";
-                } else {
-                    $message = "<div class='alert error'>Error: " . $stmt->error . "</div>";
-                }
-                $stmt->close();
-                break;
-        }
-    }
+if (isset($_POST['add_item'])) {
+    $desc = mysqli_real_escape_string($conn, $_POST['item_description']);
+    $price = mysqli_real_escape_string($conn, $_POST['price']);
+    $result = mysqli_query($conn, "INSERT INTO items (item_description, price) VALUES ('$desc', '$price')");
+    $message = $result ? "Item added." : "Error: " . mysqli_error($conn);
 }
 
-// Handle edit request
-if (isset($_GET['edit'])) {
-    $id = $_GET['edit'];
-    $sql = "SELECT * FROM items WHERE id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $edit_item = $result->fetch_assoc();
-    $stmt->close();
+if (isset($_POST['edit_item'])) {
+    $code = mysqli_real_escape_string($conn, $_POST['item_code']);
+    $desc = mysqli_real_escape_string($conn, $_POST['item_description']);
+    $price = mysqli_real_escape_string($conn, $_POST['price']);
+    $result = mysqli_query($conn, "UPDATE items SET item_description='$desc', price='$price' WHERE item_code='$code'");
+    $message = $result ? "Item updated." : "Error: " . mysqli_error($conn);
 }
 
-// Search functionality
-$search = isset($_GET['search']) ? $_GET['search'] : '';
-$sql = "SELECT * FROM items WHERE item_code LIKE ? OR item_description LIKE ? ORDER BY item_code";
-$stmt = $conn->prepare($sql);
-$search_param = "%$search%";
-$stmt->bind_param("ss", $search_param, $search_param);
-$stmt->execute();
-$items = $stmt->get_result();
+if (isset($_POST['delete_item'])) {
+    $code = mysqli_real_escape_string($conn, $_POST['item_code']);
+    $result = mysqli_query($conn, "DELETE FROM items WHERE item_code='$code'");
+    $message = $result ? "Item deleted." : "Error: " . mysqli_error($conn);
+}
+
+$search = isset($_GET['search']) ? mysqli_real_escape_string($conn, trim($_GET['search'])) : "";
+$where = $search ? "WHERE item_description LIKE '%$search%' OR item_code LIKE '%$search%'" : "";
+$items = mysqli_query($conn, "SELECT * FROM items $where ORDER BY item_code");
+$edit_code = isset($_GET['edit']) ? (int) $_GET['edit'] : null;
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Items Management</title>
+    <title>Items</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
             font-family: Arial, sans-serif;
-            padding: 20px;
-            background: #f4f4f4;
+            margin: 20px;
+            font-size: 14px;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        nav {
+            margin-bottom: 16px;
         }
 
-        h1 {
-            color: #333;
-            margin-bottom: 20px;
-        }
-
-        .nav {
-            margin-bottom: 20px;
-        }
-
-        .nav a {
+        nav a {
+            margin-right: 12px;
             text-decoration: none;
-            color: #007bff;
-            margin-right: 15px;
+            color: #1a6bbd;
         }
 
-        .nav a:hover {
+        nav a.active {
+            font-weight: bold;
             text-decoration: underline;
         }
 
-        .alert {
-            padding: 10px;
-            margin-bottom: 20px;
-            border-radius: 4px;
+        h1 {
+            font-size: 18px;
+            margin-bottom: 12px;
         }
 
-        .alert.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+        .msg {
+            background: #dff0d8;
+            border: 1px solid #b2dba1;
+            padding: 8px 12px;
+            margin-bottom: 12px;
         }
 
-        .alert.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+        .err {
+            background: #fde;
+            border: 1px solid #f99;
         }
 
-        .form-group {
-            margin-bottom: 15px;
+        form.inline {
+            display: inline;
         }
 
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-            color: #555;
+        input[type=text],
+        input[type=number] {
+            padding: 4px 6px;
+            border: 1px solid #ccc;
         }
 
-        input[type="text"],
-        input[type="number"] {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-
-        button {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
+        button,
+        a.btn {
+            padding: 4px 10px;
             cursor: pointer;
-            font-size: 14px;
-        }
-
-        .btn-primary {
-            background: #007bff;
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #0056b3;
-        }
-
-        .btn-danger {
-            background: #dc3545;
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #c82333;
-        }
-
-        .btn-warning {
-            background: #ffc107;
-            color: #000;
-        }
-
-        .btn-warning:hover {
-            background: #e0a800;
-        }
-
-        .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-
-        .btn-secondary:hover {
-            background: #5a6268;
         }
 
         table {
-            width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            width: 100%;
+            margin-top: 12px;
         }
 
         th,
         td {
-            padding: 12px;
+            border: 1px solid #ccc;
+            padding: 6px 10px;
             text-align: left;
-            border-bottom: 1px solid #ddd;
         }
 
         th {
-            background: #f8f9fa;
-            font-weight: bold;
-            color: #333;
+            background: #f0f0f0;
         }
 
-        tr:hover {
-            background: #f8f9fa;
-        }
-
-        .actions {
-            display: flex;
-            gap: 5px;
-        }
-
-        .search-box {
-            margin-bottom: 20px;
-        }
-
-        .search-box input {
-            display: inline-block;
-            width: 300px;
-            margin-right: 10px;
-        }
-
-        .form-section {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 4px;
-            margin-bottom: 30px;
+        tr.editing {
+            background: #fffbe6;
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <div class="nav">
-            <a href="index.php">← Back to Home</a>
-            <a href="reservations.php">Reservations</a>
-        </div>
 
-        <h1>Items Management</h1>
+    <nav>
+        <a href="items.php" class="active">Items</a>
+        <a href="reservations.php">Reservations</a>
+    </nav>
 
-        <?php echo $message; ?>
+    <h1>Items</h1>
 
-        <div class="form-section">
-            <h2><?php echo $edit_item ? 'Edit Item' : 'Add New Item'; ?></h2>
-            <form method="POST">
-                <?php if ($edit_item): ?>
-                    <input type="hidden" name="id" value="<?php echo $edit_item['id']; ?>">
-                    <input type="hidden" name="action" value="edit">
+    <?php if ($message): ?>
+        <div class="msg <?= str_starts_with($message, 'Error') ? 'err' : '' ?>"><?= htmlspecialchars($message) ?></div>
+    <?php endif; ?>
+
+    <!-- ADD -->
+    <form method="POST">
+        Description: <input type="text" name="item_description" required>
+        &nbsp; Price: <input type="number" name="price" step="0.01" min="0" required>
+        &nbsp; <button type="submit" name="add_item">Add Item</button>
+    </form>
+
+    <hr style="margin:14px 0;">
+
+    <!-- SEARCH -->
+    <form method="GET">
+        <input type="text" name="search" value="<?= htmlspecialchars($search) ?>"
+            placeholder="Search code or description...">
+        <button type="submit">Search</button>
+        <?php if ($search): ?> <a href="items.php">Clear</a> <?php endif; ?>
+    </form>
+
+    <!-- TABLE -->
+    <table>
+        <thead>
+            <tr>
+                <th>Code</th>
+                <th>Description</th>
+                <th>Price</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php while ($row = mysqli_fetch_assoc($items)): ?>
+                <?php if ($edit_code === (int) $row['item_code']): ?>
+                    <tr class="editing">
+                        <td><?= $row['item_code'] ?></td>
+                        <td colspan="2">
+                            <form method="POST">
+                                <input type="hidden" name="item_code" value="<?= $row['item_code'] ?>">
+                                <input type="text" name="item_description"
+                                    value="<?= htmlspecialchars($row['item_description']) ?>" required>
+                                &nbsp;
+                                <input type="number" name="price" step="0.01" value="<?= $row['price'] ?>" required>
+                                &nbsp;
+                                <button type="submit" name="edit_item">Save</button>
+                                <a href="items.php<?= $search ? '?search=' . urlencode($search) : '' ?>">Cancel</a>
+                            </form>
+                        </td>
+                        <td></td>
+                    </tr>
                 <?php else: ?>
-                    <input type="hidden" name="action" value="add">
-                <?php endif; ?>
-
-                <div class="form-group">
-                    <label>Item Code:</label>
-                    <input type="text" name="item_code" value="<?php echo $edit_item['item_code'] ?? ''; ?>" required>
-                </div>
-
-                <div class="form-group">
-                    <label>Item Description:</label>
-                    <input type="text" name="item_description"
-                        value="<?php echo $edit_item['item_description'] ?? ''; ?>" required>
-                </div>
-
-                <div class="form-group">
-                    <label>Price:</label>
-                    <input type="number" step="0.01" name="price" value="<?php echo $edit_item['price'] ?? ''; ?>"
-                        required>
-                </div>
-
-                <button type="submit" class="btn-primary">
-                    <?php echo $edit_item ? 'Update Item' : 'Add Item'; ?>
-                </button>
-
-                <?php if ($edit_item): ?>
-                    <a href="items.php"><button type="button" class="btn-secondary">Cancel</button></a>
-                <?php endif; ?>
-            </form>
-        </div>
-
-        <div class="search-box">
-            <form method="GET">
-                <input type="text" name="search" placeholder="Search by code or description..."
-                    value="<?php echo htmlspecialchars($search); ?>">
-                <button type="submit" class="btn-primary">Search</button>
-                <?php if ($search): ?>
-                    <a href="items.php"><button type="button" class="btn-secondary">Clear</button></a>
-                <?php endif; ?>
-            </form>
-        </div>
-
-        <h2>Items List</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Item Code</th>
-                    <th>Description</th>
-                    <th>Price</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php while ($row = $items->fetch_assoc()): ?>
                     <tr>
-                        <td><?php echo htmlspecialchars($row['item_code']); ?></td>
-                        <td><?php echo htmlspecialchars($row['item_description']); ?></td>
-                        <td>₱<?php echo number_format($row['price'], 2); ?></td>
-                        <td class="actions">
-                            <a href="items.php?edit=<?php echo $row['id']; ?>">
-                                <button class="btn-warning">Edit</button>
-                            </a>
-                            <form method="POST" style="display:inline;"
-                                onsubmit="return confirm('Are you sure you want to delete this item?');">
-                                <input type="hidden" name="action" value="delete">
-                                <input type="hidden" name="id" value="<?php echo $row['id']; ?>">
-                                <button type="submit" class="btn-danger">Delete</button>
+                        <td><?= $row['item_code'] ?></td>
+                        <td><?= htmlspecialchars($row['item_description']) ?></td>
+                        <td>Php <?= number_format($row['price'], 2) ?></td>
+                        <td>
+                            <a
+                                href="items.php?edit=<?= $row['item_code'] ?><?= $search ? '&search=' . urlencode($search) : '' ?>">Edit</a>
+                            &nbsp;
+                            <form class="inline" method="POST">
+                                <input type="hidden" name="item_code" value="<?= $row['item_code'] ?>">
+                                <button type="submit" name="delete_item"
+                                    onclick="return confirm('Delete this item?')">Delete</button>
                             </form>
                         </td>
                     </tr>
-                <?php endwhile; ?>
-            </tbody>
-        </table>
-    </div>
+                <?php endif; ?>
+            <?php endwhile; ?>
+        </tbody>
+    </table>
+
 </body>
 
 </html>
-
-<?php
-$conn->close();
-?>
+<?php mysqli_close($conn); ?>
